@@ -1,16 +1,35 @@
-use std::any::TypeId;
-use std::borrow::Borrow;
-use std::cmp::{PartialEq, PartialOrd};
-use std::collections::HashMap;
+use core::any::TypeId;
+use core::borrow::Borrow;
+use core::cmp::{PartialEq, PartialOrd};
+use core::fmt;
+use core::ops::{Add, BitAnd, BitOr, BitXor, Deref, Div, Mul, Neg, Rem, Shl, Shr, Sub};
+
+#[cfg(not(feature = "std"))]
+use alloc::{
+    borrow::ToOwned,
+    boxed::Box,
+    collections::BTreeMap,
+    format,
+    slice::SliceConcatExt,
+    string::{String, ToString},
+    sync::Arc,
+    vec,
+    vec::Vec,
+};
+#[cfg(not(feature = "std"))]
+use libm::{F32Ext, F64Ext};
+#[cfg(feature = "std")]
+use std::{collections::BTreeMap, sync::Arc};
+
+#[cfg(not(feature = "std"))]
+use crate::error::Error;
+#[cfg(feature = "std")]
 use std::error::Error;
-use std::fmt;
-use std::sync::Arc;
-use std::ops::{Add, BitAnd, BitOr, BitXor, Deref, Div, Mul, Neg, Rem, Shl, Shr, Sub};
 
 use any::{Any, AnyExt};
+use call::FunArgs;
 use fn_register::{Mut, RegisterFn};
 use parser::{lex, parse, Expr, FnDef, Stmt};
-use call::FunArgs;
 
 #[derive(Debug)]
 pub enum EvalAltResult {
@@ -35,7 +54,7 @@ impl EvalAltResult {
             EvalAltResult::ErrorVariableNotFound(ref s) => Some(s.as_str()),
             EvalAltResult::ErrorFunctionNotFound(ref s) => Some(s.as_str()),
             EvalAltResult::ErrorMismatchOutputType(ref s) => Some(s.as_str()),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -127,8 +146,8 @@ pub struct FnSpec {
 #[derive(Clone)]
 pub struct Engine {
     /// A hashmap containing all functions known to the engine
-    pub fns: HashMap<FnSpec, Arc<FnIntExt>>,
-    pub type_names: HashMap<TypeId,String>,
+    pub fns: BTreeMap<FnSpec, Arc<FnIntExt>>,
+    pub type_names: BTreeMap<TypeId, String>,
 }
 
 pub enum FnIntExt {
@@ -190,11 +209,17 @@ impl Engine {
         self.fns
             .get(&spec)
             .or_else(|| {
-                let spec1 = FnSpec { ident: ident.clone(), args: None };
+                let spec1 = FnSpec {
+                    ident: ident.clone(),
+                    args: None,
+                };
                 self.fns.get(&spec1)
             })
             .ok_or_else(|| {
-                let typenames = args.iter().map(|x| self.nice_type_name((&**x).box_clone())).collect::<Vec<_>>();
+                let typenames = args
+                    .iter()
+                    .map(|x| self.nice_type_name((&**x).box_clone()))
+                    .collect::<Vec<_>>();
                 EvalAltResult::ErrorFunctionNotFound(format!("{} ({})", ident, typenames.join(",")))
             })
             .and_then(move |f| match **f {
@@ -275,11 +300,12 @@ impl Engine {
         this_ptr: &mut Any,
         dot_rhs: &Expr,
     ) -> Result<Box<Any>, EvalAltResult> {
-        use std::iter::once;
+        use core::iter::once;
 
         match *dot_rhs {
             Expr::FnCall(ref fn_name, ref args) => {
-                let mut args: Vec<Box<Any>> = args.iter()
+                let mut args: Vec<Box<Any>> = args
+                    .iter()
                     .map(|arg| self.eval_expr(scope, arg))
                     .collect::<Result<Vec<_>, _>>()?;
                 let args = once(this_ptr)
@@ -339,7 +365,8 @@ impl Engine {
         id: &str,
         idx: &Expr,
     ) -> Result<(usize, usize, Box<Any>), EvalAltResult> {
-        let idx_boxed = self.eval_expr(scope, idx)?
+        let idx_boxed = self
+            .eval_expr(scope, idx)?
             .downcast::<i64>()
             .map_err(|_| EvalAltResult::ErrorIndexMismatch)?;
         let idx = *idx_boxed as usize;
@@ -630,6 +657,7 @@ impl Engine {
         }
     }
 
+    #[cfg(feature = "std")]
     /// Evaluate a file
     pub fn eval_file<T: Any + Clone>(&mut self, fname: &str) -> Result<T, EvalAltResult> {
         use std::fs::File;
@@ -693,13 +721,16 @@ impl Engine {
 
                 match x.downcast::<T>() {
                     Ok(out) => Ok(*out),
-                    Err(a) => Err(EvalAltResult::ErrorMismatchOutputType(self.nice_type_name(a))),
+                    Err(a) => Err(EvalAltResult::ErrorMismatchOutputType(
+                        self.nice_type_name(a),
+                    )),
                 }
             }
             Err(_) => Err(EvalAltResult::ErrorFunctionArgMismatch),
         }
     }
 
+    #[cfg(feature = "std")]
     /// Evaluate a file, but only return errors, if there are any.
     /// Useful for when you don't need the result, but still need
     /// to keep track of possible errors
@@ -812,31 +843,85 @@ impl Engine {
             )
         }
 
-        fn add<T: Add>(x: T, y: T) -> <T as Add>::Output { x + y }
-        fn sub<T: Sub>(x: T, y: T) -> <T as Sub>::Output { x - y }
-        fn mul<T: Mul>(x: T, y: T) -> <T as Mul>::Output { x * y }
-        fn div<T: Div>(x: T, y: T) -> <T as Div>::Output { x / y }
-        fn neg<T: Neg>(x: T) -> <T as Neg>::Output       { -x }
-        fn lt<T: PartialOrd>(x: T, y: T) -> bool  { x < y  }
-        fn lte<T: PartialOrd>(x: T, y: T) -> bool { x <= y }
-        fn gt<T: PartialOrd>(x: T, y: T) -> bool  { x > y  }
-        fn gte<T: PartialOrd>(x: T, y: T) -> bool { x >= y }
-        fn eq<T: PartialEq>(x: T, y: T) -> bool   { x == y }
-        fn ne<T: PartialEq>(x: T, y: T) -> bool   { x != y }
-        fn and(x: bool, y: bool) -> bool { x && y }
-        fn or(x: bool, y: bool) -> bool  { x || y }
-        fn not(x: bool) -> bool { !x }
-        fn concat(x: String, y: String) -> String { x + &y }
-        fn binary_and<T: BitAnd>(x: T, y: T) -> <T as BitAnd>::Output  { x & y }
-        fn binary_or<T: BitOr>(x: T, y: T) -> <T as BitOr>::Output     { x | y }
-        fn binary_xor<T: BitXor>(x: T, y: T) -> <T as BitXor>::Output  { x ^ y }
-        fn left_shift<T: Shl<T>>(x: T, y: T) -> <T as Shl<T>>::Output  { x.shl(y) }
-        fn right_shift<T: Shr<T>>(x: T, y: T) -> <T as Shr<T>>::Output { x.shr(y) }
-        fn modulo<T: Rem<T>>(x: T, y: T) -> <T as Rem<T>>::Output { x % y }
-        fn pow_i64_i64(x: i64, y: i64) -> i64 { x.pow(y as u32) }
-        fn pow_f64_f64(x: f64, y: f64) -> f64 { x.powf(y) }
-        fn pow_f64_i64(x: f64, y: i64) -> f64 { x.powi(y as i32) }
-        fn unit_eq(a: (), b: ()) -> bool { true }
+        fn add<T: Add>(x: T, y: T) -> <T as Add>::Output {
+            x + y
+        }
+        fn sub<T: Sub>(x: T, y: T) -> <T as Sub>::Output {
+            x - y
+        }
+        fn mul<T: Mul>(x: T, y: T) -> <T as Mul>::Output {
+            x * y
+        }
+        fn div<T: Div>(x: T, y: T) -> <T as Div>::Output {
+            x / y
+        }
+        fn neg<T: Neg>(x: T) -> <T as Neg>::Output {
+            -x
+        }
+        fn lt<T: PartialOrd>(x: T, y: T) -> bool {
+            x < y
+        }
+        fn lte<T: PartialOrd>(x: T, y: T) -> bool {
+            x <= y
+        }
+        fn gt<T: PartialOrd>(x: T, y: T) -> bool {
+            x > y
+        }
+        fn gte<T: PartialOrd>(x: T, y: T) -> bool {
+            x >= y
+        }
+        fn eq<T: PartialEq>(x: T, y: T) -> bool {
+            x == y
+        }
+        fn ne<T: PartialEq>(x: T, y: T) -> bool {
+            x != y
+        }
+        fn and(x: bool, y: bool) -> bool {
+            x && y
+        }
+        fn or(x: bool, y: bool) -> bool {
+            x || y
+        }
+        fn not(x: bool) -> bool {
+            !x
+        }
+        fn concat(x: String, y: String) -> String {
+            x + &y
+        }
+        fn binary_and<T: BitAnd>(x: T, y: T) -> <T as BitAnd>::Output {
+            x & y
+        }
+        fn binary_or<T: BitOr>(x: T, y: T) -> <T as BitOr>::Output {
+            x | y
+        }
+        fn binary_xor<T: BitXor>(x: T, y: T) -> <T as BitXor>::Output {
+            x ^ y
+        }
+        fn left_shift<T: Shl<T>>(x: T, y: T) -> <T as Shl<T>>::Output {
+            x.shl(y)
+        }
+        fn right_shift<T: Shr<T>>(x: T, y: T) -> <T as Shr<T>>::Output {
+            x.shr(y)
+        }
+        fn modulo<T: Rem<T>>(x: T, y: T) -> <T as Rem<T>>::Output {
+            x % y
+        }
+        fn pow_i64_i64(x: i64, y: i64) -> i64 {
+            x.pow(y as u32)
+        }
+        fn pow_f64_f64(x: f64, y: f64) -> f64 {
+            x.powf(y)
+        }
+        fn pow_f64_i64(x: f64, y: i64) -> f64 {
+            #[cfg(feature = "std")]
+            return x.powi(y as i32);
+
+            #[cfg(not(feature = "std"))]
+            return pow_f64_f64(x, y as _);
+        }
+        fn unit_eq(a: (), b: ()) -> bool {
+            true
+        }
 
         reg_op!(engine, "+", add, i32, i64, u32, u64, f32, f64);
         reg_op!(engine, "-", sub, i32, i64, u32, u64, f32, f64);
@@ -874,14 +959,13 @@ impl Engine {
         // FIXME?  Registering array lookups are a special case because we want to return boxes
         // directly let ent = engine.fns.entry("[]".to_string()).or_insert_with(Vec::new);
         // (*ent).push(FnType::ExternalFn2(Box::new(idx)));
-
     }
 
     /// Make a new engine
     pub fn new() -> Engine {
         let mut engine = Engine {
-            fns: HashMap::new(),
-            type_names: HashMap::new(),
+            fns: BTreeMap::new(),
+            type_names: BTreeMap::new(),
         };
 
         Engine::register_default_lib(&mut engine);

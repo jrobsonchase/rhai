@@ -1,5 +1,8 @@
-use std::any::{Any as StdAny, TypeId};
-use std::fmt;
+use core::any::{Any as StdAny, TypeId};
+use core::fmt;
+
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
 
 pub trait Any: StdAny {
     fn type_id(&self) -> TypeId;
@@ -12,8 +15,8 @@ pub trait Any: StdAny {
 }
 
 impl<T> Any for T
-    where
-        T: Clone + StdAny + ?Sized
+where
+    T: Clone + StdAny + ?Sized,
 {
     #[inline]
     fn type_id(&self) -> TypeId {
@@ -25,7 +28,9 @@ impl<T> Any for T
         Box::new(self.clone())
     }
 
-    fn _closed(&self) -> _Private { _Private }
+    fn _closed(&self) -> _Private {
+        _Private
+    }
 }
 
 impl Any {
@@ -45,9 +50,7 @@ impl Any {
     #[inline]
     pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
         if self.is::<T>() {
-            unsafe {
-                Some(&*(self as *const Any as *const T))
-            }
+            unsafe { Some(&*(self as *const Any as *const T)) }
         } else {
             None
         }
@@ -56,9 +59,7 @@ impl Any {
     #[inline]
     pub fn downcast_mut<T: Any>(&mut self) -> Option<&mut T> {
         if self.is::<T>() {
-            unsafe {
-                Some(&mut *(self as *mut Any as *mut T))
-            }
+            unsafe { Some(&mut *(self as *mut Any as *mut T)) }
         } else {
             None
         }

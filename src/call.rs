@@ -3,6 +3,9 @@
 
 use any::Any;
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 pub trait FunArgs<'a> {
     fn into_vec(self) -> Vec<&'a mut Any>;
 }

@@ -1,4 +1,7 @@
-use std::any::TypeId;
+use core::any::TypeId;
+
+#[cfg(not(feature = "std"))]
+use alloc::{borrow::ToOwned, boxed::Box, vec, vec::Vec};
 
 use any::Any;
 use engine::{Engine, EvalAltResult};

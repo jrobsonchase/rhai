@@ -30,9 +30,24 @@
 //!
 //! [Check out the README on GitHub for more information!](https://github.com/jonathandturner/rhai)
 
+#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(feature = "std"), feature(slice_concat_ext))]
 // lints required by Rhai
-#![allow(warnings, unknown_lints, type_complexity, new_without_default_derive,
-         needless_pass_by_value, too_many_arguments)]
+#![allow(
+    warnings,
+    unknown_lints,
+    type_complexity,
+    new_without_default_derive,
+    needless_pass_by_value,
+    too_many_arguments
+)]
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+extern crate libm;
+#[cfg(feature = "std")]
+extern crate core;
 
 // needs to be here, because order matters for macros
 macro_rules! debug_println {
@@ -44,10 +59,10 @@ macro_rules! debug_println {
 mod any;
 mod call;
 mod engine;
+mod error;
 mod fn_register;
 mod parser;
 
 pub use any::Any;
 pub use engine::{Engine, EvalAltResult, Scope};
 pub use fn_register::RegisterFn;
-
